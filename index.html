@@ -1,0 +1,1340 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pagou - Controle de Dívidas</title>
+  <link rel="icon"
+    href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💲</text></svg>">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap');
+
+    body {
+      font-family: 'Poppins', sans-serif;
+    }
+
+    .tab-active {
+      border-bottom: 3px solid #4f46e5;
+      color: #4f46e5;
+      font-weight: 600;
+    }
+
+    .debt-card {
+      transition: all 0.3s ease;
+    }
+
+    .debt-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    .overdue {
+      border-left: 4px solid #ef4444;
+    }
+
+    .due-soon {
+      border-left: 4px solid #f59e0b;
+    }
+
+    .paid {
+      border-left: 4px solid #10b981;
+    }
+
+    .modal {
+      transition: opacity 0.3s ease, transform 0.3s ease;
+    }
+
+    .modal-open {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .modal-closed {
+      opacity: 0;
+      transform: translateY(20px);
+      pointer-events: none;
+    }
+
+    .datepicker {
+      z-index: 50;
+    }
+
+    .action-btn {
+      transition: all 0.2s ease;
+    }
+
+    .action-btn:hover {
+      transform: scale(1.05);
+    }
+
+    .export-btn {
+      background: linear-gradient(135deg, #4f46e5 0%, #8b5cf6 100%);
+    }
+
+    .export-btn:hover {
+      background: linear-gradient(135deg, #4338ca 0%, #7c3aed 100%);
+    }
+
+    .notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #4f46e5;
+      color: white;
+      padding: 15px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+      transform: translateX(200%);
+      transition: transform 0.3s ease;
+    }
+
+    .notification.show {
+      transform: translateX(0);
+    }
+
+    .notification.success {
+      background: #10b981;
+    }
+
+    .notification.warning {
+      background: #f59e0b;
+    }
+
+    .notification.error {
+      background: #ef4444;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-50 min-h-screen">
+  <!-- Notification -->
+
+  <div id="notification" class="notification">
+  <div class="flex items-center space-x-2">
+    <span id="notificationIcon"></span>
+    <div>
+      <div id="notificationTitle" class="font-bold"></div>
+      <div id="notificationMessage"></div>
+    </div>
+  </div>
+</div>
+  <div class="max-w-md mx-auto bg-white min-h-screen shadow-sm">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6 sticky top-0 z-10">
+      <div class="flex justify-between items-center">
+        <div class="flex items-center space-x-2">
+          <span class="text-2xl">💰</span>
+          <h1 class="text-2xl font-bold">Pagou</h1>
+        </div>
+        <div class="flex items-center space-x-3">
+          <button id="exportBtn"
+            class="modern-button bg-white/10 backdrop-blur-sm text-white p-3 rounded-full hover:bg-white/20">
+            <i class="fas fa-file-export"></i>
+          </button>
+          <button id="addDebtBtn" class="modern-button bg-white text-indigo-600 p-3 rounded-full hover:bg-indigo-50">
+            <i class="fas fa-plus"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabs com design moderno -->
+      <div class="flex mt-6 bg-white/10 backdrop-blur-sm rounded-lg p-1">
+        <button id="toReceiveTab" class="flex-1 py-2 px-4 rounded-lg font-medium transition-all duration-300">
+          A Receber
+        </button>
+        <button id="toPayTab" class="flex-1 py-2 px-4 rounded-lg font-medium transition-all duration-300">
+          A Pagar
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="p-4">
+      <!-- Summary Cards -->
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="bg-indigo-50 p-3 rounded-lg shadow-sm">
+          <p class="text-xs text-indigo-500">Total a Receber</p>
+          <p id="totalToReceive" class="font-bold text-lg">R$ 0,00</p>
+        </div>
+        <div class="bg-indigo-50 p-3 rounded-lg shadow-sm">
+          <p class="text-xs text-indigo-500">Total a Pagar</p>
+          <p id="totalToPay" class="font-bold text-lg">R$ 0,00</p>
+        </div>
+      </div>
+
+      <!-- Filter and Sort -->
+      <div class="flex justify-between items-center mb-6">
+        <div class="relative flex-1 mr-3">
+          <select id="filterSelect"
+            class="w-full appearance-none glass-card px-4 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200">
+            <option value="all">Todos os status</option>
+            <option value="pending">Pendentes</option>
+            <option value="paid">Pagas</option>
+            <option value="overdue">Vencidas</option>
+          </select>
+          <div class="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+            <i class="fas fa-chevron-down text-gray-400 text-xs"></i>
+          </div>
+        </div>
+
+        <div class="relative flex-1">
+          <select id="sortSelect"
+            class="w-full appearance-none glass-card px-4 py-2 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200">
+            <option value="date-desc">Mais recentes</option>
+            <option value="date-asc">Mais antigas</option>
+            <option value="value-desc">Maior valor</option>
+            <option value="value-asc">Menor valor</option>
+          </select>
+          <div class="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+            <i class="fas fa-chevron-down text-gray-400 text-xs"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- Debts List -->
+      <div id="debtsList" class="space-y-3">
+        <!-- Debt cards will be inserted here by JavaScript -->
+        <div class="debt-card glass-card p-4 rounded-xl mb-4 hover:translate-y-[-2px] transition-all duration-300">
+          <div class="flex justify-between items-start">
+            <div class="flex items-start space-x-3">
+              <div class="status-indicator ${getStatusClass(debt)}"></div>
+              <div>
+                <h3 class="font-medium text-gray-900">${debt.name}</h3>
+                <p class="text-sm text-gray-500">${formattedDate}</p>
+              </div>
+            </div>
+            <div class="text-right">
+              <p class="font-bold text-lg ${debt.type === 'toReceive' ? 'text-indigo-600' : 'text-purple-600'}">
+                ${formattedValue}</p>
+              <span class="inline-block px-2 py-1 text-xs font-medium rounded-full ${
+                debt.status === 'paid' 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-yellow-100 text-yellow-800'
+              }">
+                ${debt.status === 'paid' ? 'Pago' : 'Pendente'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="text-center py-10">
+        <div class="mx-auto w-24 h-24 bg-indigo-100 rounded-full flex items-center justify-center mb-4">
+          <i class="fas fa-hand-holding-usd text-indigo-500 text-3xl"></i>
+        </div>
+        <h3 class="font-medium text-gray-700">Nenhuma dívida cadastrada</h3>
+        <p class="text-gray-500 text-sm mt-1">Clique no botão "+" para adicionar uma nova dívida</p>
+      </div>
+    </main>
+
+    <!-- Add/Edit Debt Modal -->
+    <div id="addDebtModal"
+      class="modal modal-closed fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+          <div class="flex justify-between items-center">
+            <h3 class="font-bold text-lg" id="modalTitle">Adicionar Dívida</h3>
+            <button id="closeModalBtn" class="text-gray-500 hover:text-gray-700 action-btn">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+
+          <div class="flex mt-4 border-b border-gray-200">
+            <button id="toReceiveType" class="flex-1 py-2 text-center font-medium tab-active">
+              A Receber
+            </button>
+            <button id="toPayType" class="flex-1 py-2 text-center font-medium text-gray-500">
+              A Pagar
+            </button>
+          </div>
+        </div>
+
+        <div class="p-4">
+          <form id="debtForm">
+            <input type="hidden" id="debtId">
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+              <input type="text" id="debtName"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                required>
+            </div>
+
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Valor</label>
+              <div class="relative">
+                <span class="absolute left-3 top-2 text-gray-500">R$</span>
+                <input type="number" id="debtValue" step="0.01" min="0"
+                  class="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                  required>
+              </div>
+            </div>
+
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Data</label>
+              <input type="date" id="debtDate"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"
+                required>
+            </div>
+
+            <div class="mb-4">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Descrição (opcional)</label>
+              <textarea id="debtDescription" rows="2"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500"></textarea>
+            </div>
+
+            <div class="mb-4">
+              <label class="flex items-center">
+                <input type="checkbox" id="addReminder" class="rounded text-indigo-600 focus:ring-indigo-200">
+                <span class="ml-2 text-sm font-medium text-gray-700">Adicionar lembrete</span>
+              </label>
+
+              <div id="reminderFields" class="mt-2 hidden space-y-2 pl-6">
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1">Data do lembrete</label>
+                  <input type="date" id="reminderDate"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 text-sm">
+                </div>
+
+                <div>
+                  <label class="block text-xs font-medium text-gray-500 mb-1">Hora do lembrete</label>
+                  <input type="time" id="reminderTime"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-200 focus:border-indigo-500 text-sm">
+                </div>
+
+                <div>
+                  <label class="flex items-center">
+                    <input type="checkbox" id="recurringReminder" class="rounded text-indigo-600 focus:ring-indigo-200">
+                    <span class="ml-2 text-xs font-medium text-gray-500">Lembrete recorrente</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-6">
+              <button type="submit"
+                class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 action-btn">
+                Salvar Dívida
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Debt Detail Modal -->
+    <div id="debtDetailModal"
+      class="modal modal-closed fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div class="p-4 border-b border-gray-200 sticky top-0 bg-white z-10">
+          <div class="flex justify-between items-center">
+            <h3 class="font-bold text-lg">Detalhes da Dívida</h3>
+            <button id="closeDetailModalBtn" class="text-gray-500 hover:text-gray-700 action-btn">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="p-4">
+          <div class="flex justify-between items-center mb-4">
+            <div>
+              <h4 id="detailPerson" class="font-bold text-lg">João Pedro</h4>
+              <span id="detailType"
+                class="inline-block px-2 py-1 text-xs font-medium rounded bg-indigo-100 text-indigo-800">A
+                Receber</span>
+            </div>
+            <div id="detailValue" class="text-2xl font-bold text-indigo-600">R$ 150,00</div>
+          </div>
+
+          <div class="space-y-4">
+            <div>
+              <p class="text-xs text-gray-500">Data</p>
+              <p id="detailDate" class="font-medium">15/06/2023</p>
+            </div>
+
+            <div>
+              <p class="text-xs text-gray-500">Status</p>
+              <p id="detailStatus" class="font-medium">
+                <span
+                  class="inline-block px-2 py-1 text-xs font-medium rounded bg-yellow-100 text-yellow-800">Pendente</span>
+              </p>
+            </div>
+
+            <div>
+              <p class="text-xs text-gray-500">Descrição</p>
+              <p id="detailDescription" class="font-medium">Empréstimo para conserto do carro</p>
+            </div>
+
+            <div id="detailReminderSection">
+              <p class="text-xs text-gray-500">Lembrete</p>
+            </div>
+
+            <div id="detailPaymentSection" class="hidden">
+              <p class="text-xs text-gray-500">Data de pagamento</p>
+              <p id="detailPaymentDate" class="font-medium">18/06/2023</p>
+            </div>
+          </div>
+
+          <div class="mt-6 space-y-2">
+            <button id="markAsPaidBtn"
+              class="w-full bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 action-btn">
+              Marcar como Pago
+            </button>
+
+            <button id="editDebtBtn"
+              class="w-full bg-indigo-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 action-btn">
+              Editar
+            </button>
+
+            <button id="deleteDebtBtn"
+              class="w-full bg-red-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 action-btn">
+              Excluir
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmModal"
+      class="modal modal-closed fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-lg shadow-xl w-full max-w-sm">
+        <div class="p-4 border-b border-gray-200">
+          <h3 class="font-bold text-lg" id="confirmTitle">Confirmar ação</h3>
+        </div>
+
+        <div class="p-4">
+          <p id="confirmMessage">Tem certeza que deseja excluir esta dívida?</p>
+        </div>
+
+        <div class="p-4 border-t border-gray-200 flex justify-end space-x-3">
+          <button id="cancelConfirmBtn" class="px-4 py-2 text-gray-700 rounded-lg hover:bg-gray-100 action-btn">
+            Cancelar
+          </button>
+          <button id="confirmActionBtn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 action-btn">
+            Confirmar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State management
+    let debts = [];
+    let currentTab = 'toReceive';
+    let currentDebtId = null;
+    let currentAction = null;
+    let reminderTimeouts = {};
+
+    // DOM Elements
+    const toReceiveTab = document.getElementById('toReceiveTab');
+    const toPayTab = document.getElementById('toPayTab');
+    const addDebtBtn = document.getElementById('addDebtBtn');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const addDebtModal = document.getElementById('addDebtModal');
+    const debtForm = document.getElementById('debtForm');
+    const toReceiveType = document.getElementById('toReceiveType');
+    const toPayType = document.getElementById('toPayType');
+    const debtsList = document.getElementById('debtsList');
+    const emptyState = document.getElementById('emptyState');
+    const filterSelect = document.getElementById('filterSelect');
+    const sortSelect = document.getElementById('sortSelect');
+    const totalToReceive = document.getElementById('totalToReceive');
+    const totalToPay = document.getElementById('totalToPay');
+    const addReminder = document.getElementById('addReminder');
+    const reminderFields = document.getElementById('reminderFields');
+    const debtName = document.getElementById('debtName');
+    const debtDetailModal = document.getElementById('debtDetailModal');
+    const closeDetailModalBtn = document.getElementById('closeDetailModalBtn');
+    const markAsPaidBtn = document.getElementById('markAsPaidBtn');
+    const editDebtBtn = document.getElementById('editDebtBtn');
+    const deleteDebtBtn = document.getElementById('deleteDebtBtn');
+    const confirmModal = document.getElementById('confirmModal');
+    const confirmTitle = document.getElementById('confirmTitle');
+    const confirmMessage = document.getElementById('confirmMessage');
+    const cancelConfirmBtn = document.getElementById('cancelConfirmBtn');
+    const confirmActionBtn = document.getElementById('confirmActionBtn');
+    const modalTitle = document.getElementById('modalTitle');
+    const exportBtn = document.getElementById('exportBtn');
+    const notification = document.getElementById('notification');
+    const notificationTitle = document.getElementById('notificationTitle');
+    const notificationMessage = document.getElementById('notificationMessage');
+    const notificationIcon = document.getElementById('notificationIcon');
+
+    // Adicione esta função no início do seu arquivo JavaScript, logo após a declaração das variáveis
+    function requestNotificationPermission() {
+      if ('Notification' in window) {
+        Notification.requestPermission().then(function (permission) {
+          if (permission === 'granted') {
+            showNotification('Notificações ativadas', 'Você receberá alertas sobre suas dívidas!', 'success');
+          }
+        });
+      }
+    }
+
+    // Modifique a função showReminderNotification para:
+    function showReminderNotification(debt) {
+      const formattedDate = formatDate(debt.date);
+      const formattedValue = debt.value.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+      });
+
+      const title = `Lembrete de ${debt.type === 'toReceive' ? 'Recebimento' : 'Pagamento'}`;
+      const message = `${debt.name} - ${formattedValue} - Vencimento: ${formattedDate}`;
+
+      // Notificação do sistema
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification(title, {
+          body: message,
+          icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💲</text></svg>',
+          badge: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💲</text></svg>',
+          vibrate: [200, 100, 200],
+          tag: 'debt-reminder',
+          renotify: true
+        });
+
+        notification.onclick = function () {
+          window.focus();
+          showDebtDetails(debt);
+        };
+      }
+
+      // Notificação in-app
+      showNotification(title, message, 'warning');
+
+      // Som de notificação
+      playNotificationSound();
+    }
+
+    // Adicione esta nova função para tocar o som
+    function playNotificationSound() {
+      const audio = new Audio('data:audio/wav;base64,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qJrx4KOQjahZxWbcZgztj2c49nKmkId44S71j0c8eV9yDK6uPRzx5X18eDvjvQ6yKo9ZSS6l//8elePK/Lf//IInrOF/FvDoADYAGBMGb7FtErm5MXMlmPAJQVgWta7Zx2go+8xJ0UiCb8LHHdftWyLJE0QIAIsI+UbXu67dZMjmgDGCGl1H+vpF4NSDckSIkk7Vd+sxEhBQMRU8j/12UIRhzSaUdQ+rQU5kGeFxm+hb1oh6pWWmv3uvmReDl0UnvtapVaIzo1jZbf/pD6ElLqSX+rUmOQNpJFa/r+sa4e/pBlAABoAAAAA3CUgShLdGIxsY7AUABPRrgCABdDuQ5GC7DqPQCgbbJUAoRSUj+NIEig0YfyWUho1VBBBA//uQZB4ABZx5zfMakeAAAAmwAAAAF5F3P0w9GtAAACfAAAAAwLhMDmAYWMgVEG1U0FIGCBgXBXAtfMH10000EEEEEECUBYln03TTTdNBDZopopYvrTTdNa325mImNg3TTPV9q3pmY0xoO6bv3r00y+IDGid/9aaaZTGMuj9mpu9Mpio1dXrr5HERTZSmqU36A3CumzN/9Robv/Xx4v9ijkSRSNLQhAWumap82WRSBUqXStV/YcS+XVLnSS+WLDroqArFkMEsAS+eWmrUzrO0oEmE40RlMZ5+ODIkAyKAGUwZ3mVKmcamcJnMW26MRPgUw6j+LkhyHGVGYjSUUKNpuJUQoOIAyDvEyG8S5yfK6dhZc0Tx1KI/gviKL6qvvFs1+bWtaz58uUNnryq6kt5RzOCkPWlVqVX2a/EEBUdU1KrXLf40GoiiFXK///qpoiDXrOgqDR38JB0bw7SoL+ZB9o1RCkQjQ2CBYZKd/+VJxZRRZlqSkKiws0WFxUyCwsKiMy7hUVFhIaCrNQsKkTIsLivwKKigsj8XYlwt/WKi2N4d//uQRCSAAjURNIHpMZBGYiaQPSYyAAABLAAAAAAAACWAAAAApUF/Mg+0aohSIRobBAsMlO//Kk4soosy1JSFRYWaLC4qZBYWFRGZdwqKiwkNBVmoWFSJkWFxX4FFRQWR+LsS4W/rFRb/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////VEFHAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAU291bmRib3kuZGUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMjAwNGh0dHA6Ly93d3cuc291bmRib3kuZGUAAAAAAAAAACU=');
+      audio.play().catch(e => console.log('Audio playback failed:', e));
+    }
+
+    // Adicione esta função para verificar dívidas vencidas
+    function checkOverdueDebts() {
+      const today = new Date().toISOString().split('T')[0];
+
+      debts.forEach(debt => {
+        if (debt.status !== 'paid' && debt.date < today && !debt.notifiedOverdue) {
+          const formattedValue = debt.value.toLocaleString('pt-BR', {
+            style: 'currency',
+            currency: 'BRL'
+          });
+
+          const title = `Dívida Vencida!`;
+          const message = `${debt.name} - ${formattedValue} venceu hoje!`;
+
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(title, {
+              body: message,
+              icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⚠️</text></svg>',
+              tag: 'debt-overdue',
+              renotify: true
+            });
+          }
+
+          showNotification(title, message, 'error');
+          debt.notifiedOverdue = true;
+          saveDebts();
+        }
+      });
+    }
+
+    // Adicione esta função para verificar dívidas próximas do vencimento
+    function checkUpcomingDebts() {
+      const today = new Date();
+      const threeDaysFromNow = new Date(today);
+      threeDaysFromNow.setDate(today.getDate() + 3);
+
+      debts.forEach(debt => {
+        const debtDate = new Date(debt.date);
+        if (debt.status !== 'paid' &&
+          debtDate > today &&
+          debtDate <= threeDaysFromNow &&
+          !debt.notifiedUpcoming) {
+
+          const formattedValue = debt.value.toLocaleString('pt-BR', {
+            style: 'currency',
+            currency: 'BRL'
+          });
+          const daysUntilDue = Math.ceil((debtDate - today) / (1000 * 60 * 60 * 24));
+
+          const title = `Dívida Próxima do Vencimento!`;
+          const message = `${debt.name} - ${formattedValue} vence em ${daysUntilDue} dias!`;
+
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(title, {
+              body: message,
+              icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>⏰</text></svg>',
+              tag: 'debt-upcoming',
+              renotify: true
+            });
+          }
+
+          showNotification(title, message, 'warning');
+          debt.notifiedUpcoming = true;
+          saveDebts();
+        }
+      });
+    }
+
+    // Adicione estas verificações periódicas
+    setInterval(checkOverdueDebts, 1000 * 60 * 60); // Verifica a cada hora
+    setInterval(checkUpcomingDebts, 1000 * 60 * 60); // Verifica a cada hora
+
+    // Execute imediatamente na inicialização
+    checkOverdueDebts();
+    checkUpcomingDebts();
+
+    // Initialize the app
+    document.addEventListener('DOMContentLoaded', () => {
+      requestNotificationPermission();
+
+      // Load debts from localStorage if available
+      const savedDebts = localStorage.getItem('debts');
+      if (savedDebts) {
+        debts = JSON.parse(savedDebts);
+        setupReminders();
+      }
+
+      // Set today's date as default
+      const today = new Date();
+      const formattedDate = today.toISOString().split('T')[0];
+      document.getElementById('debtDate').value = formattedDate;
+
+      // Set default reminder time to 10:00
+      document.getElementById('reminderTime').value = '10:00';
+
+      // Render debts
+      renderDebts();
+      updateTotals();
+
+      // Check for empty state
+      checkEmptyState();
+    });
+
+    // Event Listeners
+    toReceiveTab.addEventListener('click', () => {
+      currentTab = 'toReceive';
+      toReceiveTab.classList.add('tab-active');
+      toReceiveTab.classList.remove('text-indigo-200');
+      toPayTab.classList.remove('tab-active');
+      toPayTab.classList.add('text-indigo-200');
+      renderDebts();
+    });
+
+    toPayTab.addEventListener('click', () => {
+      currentTab = 'toPay';
+      toPayTab.classList.add('tab-active');
+      toPayTab.classList.remove('text-indigo-200');
+      toReceiveTab.classList.remove('tab-active');
+      toReceiveTab.classList.add('text-indigo-200');
+      renderDebts();
+    });
+
+    addDebtBtn.addEventListener('click', () => {
+      // Reset form
+      debtForm.reset();
+      document.getElementById('debtId').value = '';
+      modalTitle.textContent = 'Adicionar Dívida';
+
+      // Set default type based on current tab
+      if (currentTab === 'toReceive') {
+        toReceiveType.classList.add('tab-active');
+        toReceiveType.classList.remove('text-gray-500');
+        toPayType.classList.remove('tab-active');
+        toPayType.classList.add('text-gray-500');
+      } else {
+        toPayType.classList.add('tab-active');
+        toPayType.classList.remove('text-gray-500');
+        toReceiveType.classList.remove('tab-active');
+        toReceiveType.classList.add('text-gray-500');
+      }
+
+      // Set today's date
+      const today = new Date();
+      const formattedDate = today.toISOString().split('T')[0];
+      document.getElementById('debtDate').value = formattedDate;
+
+      // Show modal
+      toggleModal(addDebtModal);
+    });
+
+    closeModalBtn.addEventListener('click', () => {
+      toggleModal(addDebtModal);
+    });
+
+    toReceiveType.addEventListener('click', () => {
+      toReceiveType.classList.add('tab-active');
+      toReceiveType.classList.remove('text-gray-500');
+      toPayType.classList.remove('tab-active');
+      toPayType.classList.add('text-gray-500');
+    });
+
+    toPayType.addEventListener('click', () => {
+      toPayType.classList.add('tab-active');
+      toPayType.classList.remove('text-gray-500');
+      toReceiveType.classList.remove('tab-active');
+      toReceiveType.classList.add('text-gray-500');
+    });
+
+    addReminder.addEventListener('change', () => {
+      if (addReminder.checked) {
+        reminderFields.classList.remove('hidden');
+
+        // Set reminder date to debt date by default
+        const debtDate = document.getElementById('debtDate').value;
+        document.getElementById('reminderDate').value = debtDate;
+      } else {
+        reminderFields.classList.add('hidden');
+      }
+    });
+
+    debtForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+
+      const type = toReceiveType.classList.contains('tab-active') ? 'toReceive' : 'toPay';
+      const name = document.getElementById('debtName').value;
+      const value = parseFloat(document.getElementById('debtValue').value);
+      const date = document.getElementById('debtDate').value;
+      const description = document.getElementById('debtDescription').value;
+      const hasReminder = document.getElementById('addReminder').checked;
+      const debtId = document.getElementById('debtId').value;
+
+      let reminder = null;
+      if (hasReminder) {
+        const reminderDate = document.getElementById('reminderDate').value;
+        const reminderTime = document.getElementById('reminderTime').value;
+        const isRecurring = document.getElementById('recurringReminder').checked;
+
+        reminder = {
+          date: reminderDate,
+          time: reminderTime,
+          isRecurring: isRecurring
+        };
+      }
+
+      if (debtId) {
+        // Editing existing debt
+        const debtIndex = debts.findIndex(d => d.id === debtId);
+        if (debtIndex !== -1) {
+          // Clear existing reminder if it exists
+          if (debts[debtIndex].reminder && reminderTimeouts[debtId]) {
+            clearTimeout(reminderTimeouts[debtId]);
+            delete reminderTimeouts[debtId];
+          }
+
+          debts[debtIndex] = {
+            ...debts[debtIndex],
+            type: type,
+            name: name,
+            value: value,
+            date: date,
+            description: description,
+            reminder: reminder
+          };
+
+          // Setup new reminder if needed
+          if (hasReminder) {
+            setupReminder(debts[debtIndex]);
+          }
+
+          showNotification('Dívida atualizada!', 'As alterações foram salvas com sucesso.', 'success');
+        }
+      } else {
+        // Adding new debt
+        const newDebt = {
+          id: Date.now().toString(),
+          type: type,
+          name: name,
+          value: value,
+          date: date,
+          description: description,
+          reminder: reminder,
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        };
+
+        debts.push(newDebt);
+
+        // Setup reminder if needed
+        if (hasReminder) {
+          setupReminder(newDebt);
+        }
+
+        showNotification('Dívida adicionada!', 'A nova dívida foi cadastrada com sucesso.', 'success');
+      }
+
+      saveDebts();
+      renderDebts();
+      updateTotals();
+      checkEmptyState();
+      toggleModal(addDebtModal);
+    });
+
+    filterSelect.addEventListener('change', () => {
+      renderDebts();
+    });
+
+    sortSelect.addEventListener('change', () => {
+      renderDebts();
+    });
+
+    closeDetailModalBtn.addEventListener('click', () => {
+      toggleModal(debtDetailModal);
+    });
+
+    markAsPaidBtn.addEventListener('click', () => {
+      const debtIndex = debts.findIndex(d => d.id === currentDebtId);
+      if (debtIndex !== -1) {
+        debts[debtIndex].status = 'paid';
+        debts[debtIndex].paymentDate = new Date().toISOString().split('T')[0];
+
+        // Clear reminder if it exists
+        if (debts[debtIndex].reminder && reminderTimeouts[currentDebtId]) {
+          clearTimeout(reminderTimeouts[currentDebtId]);
+          delete reminderTimeouts[currentDebtId];
+        }
+
+        saveDebts();
+        renderDebts();
+        updateTotals();
+        toggleModal(debtDetailModal);
+        showNotification('Dívida marcada como paga!', 'O status foi atualizado com sucesso.', 'success');
+      }
+    });
+
+    editDebtBtn.addEventListener('click', () => {
+      const debt = debts.find(d => d.id === currentDebtId);
+      if (debt) {
+        // Fill the form with debt data
+        document.getElementById('debtId').value = debt.id;
+        document.getElementById('debtName').value = debt.name;
+        document.getElementById('debtValue').value = debt.value;
+        document.getElementById('debtDate').value = debt.date;
+        document.getElementById('debtDescription').value = debt.description || '';
+
+        // Set type
+        if (debt.type === 'toReceive') {
+          toReceiveType.classList.add('tab-active');
+          toReceiveType.classList.remove('text-gray-500');
+          toPayType.classList.remove('tab-active');
+          toPayType.classList.add('text-gray-500');
+        } else {
+          toPayType.classList.add('tab-active');
+          toPayType.classList.remove('text-gray-500');
+          toReceiveType.classList.remove('tab-active');
+          toReceiveType.classList.add('text-gray-500');
+        }
+
+        // Set reminder fields if exists
+        if (debt.reminder) {
+          document.getElementById('addReminder').checked = true;
+          reminderFields.classList.remove('hidden');
+          document.getElementById('reminderDate').value = debt.reminder.date;
+          document.getElementById('reminderTime').value = debt.reminder.time;
+          document.getElementById('recurringReminder').checked = debt.reminder.isRecurring || false;
+        } else {
+          document.getElementById('addReminder').checked = false;
+          reminderFields.classList.add('hidden');
+        }
+
+        modalTitle.textContent = 'Editar Dívida';
+        toggleModal(debtDetailModal);
+        toggleModal(addDebtModal);
+      }
+    });
+
+    deleteDebtBtn.addEventListener('click', () => {
+      currentAction = 'delete';
+      confirmTitle.textContent = 'Excluir Dívida';
+      confirmMessage.textContent = 'Tem certeza que deseja excluir esta dívida? Esta ação não pode ser desfeita.';
+      confirmActionBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+      confirmActionBtn.classList.add('bg-red-600', 'hover:bg-red-700');
+      toggleModal(debtDetailModal);
+      toggleModal(confirmModal);
+    });
+
+    cancelConfirmBtn.addEventListener('click', () => {
+      toggleModal(confirmModal);
+    });
+
+    confirmActionBtn.addEventListener('click', () => {
+      if (currentAction === 'delete') {
+        const debtIndex = debts.findIndex(d => d.id === currentDebtId);
+        if (debtIndex !== -1) {
+          // Clear reminder if it exists
+          if (debts[debtIndex].reminder && reminderTimeouts[currentDebtId]) {
+            clearTimeout(reminderTimeouts[currentDebtId]);
+            delete reminderTimeouts[currentDebtId];
+          }
+
+          debts.splice(debtIndex, 1);
+          saveDebts();
+          renderDebts();
+          updateTotals();
+          showNotification('Dívida excluída!', 'A dívida foi removida com sucesso.', 'success');
+        }
+      }
+
+      toggleModal(confirmModal);
+    });
+
+    exportBtn.addEventListener('click', () => {
+      exportToPDF();
+    });
+
+    // Helper functions
+    function toggleModal(modal) {
+      modal.classList.toggle('modal-open');
+      modal.classList.toggle('modal-closed');
+    }
+
+    function saveDebts() {
+      localStorage.setItem('debts', JSON.stringify(debts));
+    }
+
+    function renderDebts() {
+      // Filter debts by current tab
+      let filteredDebts = debts.filter(debt => debt.type === currentTab);
+
+      // Apply additional filters
+      const filterValue = filterSelect.value;
+      if (filterValue === 'pending') {
+        filteredDebts = filteredDebts.filter(debt => debt.status === 'pending');
+      } else if (filterValue === 'paid') {
+        filteredDebts = filteredDebts.filter(debt => debt.status === 'paid');
+      } else if (filterValue === 'overdue') {
+        // For simplicity, we'll consider overdue as debts older than today
+        const today = new Date().toISOString().split('T')[0];
+        filteredDebts = filteredDebts.filter(debt => debt.status === 'pending' && debt.date < today);
+      }
+
+      // Apply sorting
+      const sortValue = sortSelect.value;
+      filteredDebts.sort((a, b) => {
+        if (sortValue === 'date-desc') {
+          return new Date(b.date) - new Date(a.date);
+        } else if (sortValue === 'date-asc') {
+          return new Date(a.date) - new Date(b.date);
+        } else if (sortValue === 'value-desc') {
+          return b.value - a.value;
+        } else if (sortValue === 'value-asc') {
+          return a.value - b.value;
+        } else if (sortValue === 'name-asc') {
+          return a.name.localeCompare(b.name);
+        } else if (sortValue === 'name-desc') {
+          return b.name.localeCompare(a.name);
+        }
+        return 0;
+      });
+
+      // Clear the list
+      debtsList.innerHTML = '';
+
+      // Render each debt
+      filteredDebts.forEach(debt => {
+        const debtCard = document.createElement('div');
+        debtCard.className = 'debt-card bg-white p-4 rounded-lg shadow-sm cursor-pointer';
+
+        // Add status class
+        if (debt.status === 'paid') {
+          debtCard.classList.add('paid');
+        } else {
+          const today = new Date();
+          const debtDate = new Date(debt.date);
+          const diffTime = debtDate - today;
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          if (diffDays < 0) {
+            debtCard.classList.add('overdue');
+          } else if (diffDays <= 3) {
+            debtCard.classList.add('due-soon');
+          }
+        }
+
+        // Format date
+        const formattedDate = formatDate(debt.date);
+
+        // Format value
+        const formattedValue = debt.value.toLocaleString('pt-BR', {
+          style: 'currency',
+          currency: 'BRL'
+        });
+
+        debtCard.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-medium">${debt.name}</h3>
+                            <p class="text-sm text-gray-500">${formattedDate}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-bold ${debt.status === 'paid' ? 'text-green-600' : 'text-indigo-600'}">${formattedValue}</p>
+                            <span class="inline-block px-2 py-1 text-xs font-medium rounded ${debt.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+          }">
+                                ${debt.status === 'paid' ? 'Pago' : 'Pendente'}
+                            </span>
+                        </div>
+                    </div>
+                `;
+
+        debtCard.addEventListener('click', () => {
+          showDebtDetails(debt);
+        });
+
+        debtsList.appendChild(debtCard);
+      });
+
+      checkEmptyState();
+    }
+
+    function updateTotals() {
+      const toReceiveTotal = debts
+        .filter(debt => debt.type === 'toReceive' && debt.status === 'pending')
+        .reduce((sum, debt) => sum + debt.value, 0);
+
+      const toPayTotal = debts
+        .filter(debt => debt.type === 'toPay' && debt.status === 'pending')
+        .reduce((sum, debt) => sum + debt.value, 0);
+
+      totalToReceive.textContent = toReceiveTotal.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+      });
+
+      totalToPay.textContent = toPayTotal.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+      });
+    }
+
+    function checkEmptyState() {
+      const hasDebts = debts.some(debt => debt.type === currentTab);
+
+      if (hasDebts) {
+        emptyState.classList.add('hidden');
+      } else {
+        emptyState.classList.remove('hidden');
+      }
+    }
+
+    function formatDate(dateStr) {
+  // dateStr vem do input, formato 'YYYY-MM-DD'
+  if (!dateStr) return '';
+  const [year, month, day] = dateStr.split('-');
+  return `${day}/${month}/${year}`;
+    }
+
+    function showDebtDetails(debt) {
+      currentDebtId = debt.id;
+
+      // Format date
+      const formattedDate = formatDate(debt.date);
+
+      // Format value
+      const formattedValue = debt.value.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+      });
+
+      // Set details
+      document.getElementById('detailPerson').textContent = debt.name;
+      document.getElementById('detailType').textContent = debt.type === 'toReceive' ? 'A Receber' : 'A Pagar';
+      document.getElementById('detailValue').textContent = formattedValue;
+      document.getElementById('detailDate').textContent = formattedDate;
+      document.getElementById('detailDescription').textContent = debt.description || 'Nenhuma descrição fornecida';
+
+      // Set status
+      const statusElement = document.getElementById('detailStatus');
+      statusElement.innerHTML = debt.status === 'paid'
+        ? '<span class="inline-block px-2 py-1 text-xs font-medium rounded bg-green-100 text-green-800">Pago</span>'
+        : '<span class="inline-block px-2 py-1 text-xs font-medium rounded bg-yellow-100 text-yellow-800">Pendente</span>';
+
+      // Set reminder if exists
+      const reminderSection = document.getElementById('detailReminderSection');
+      if (debt.reminder) {
+        const reminderDate = formatDate(debt.reminder.date);
+        reminderSection.querySelector('p').textContent = `${reminderDate} às ${debt.reminder.time}`;
+        reminderSection.classList.remove('hidden');
+      } else {
+        reminderSection.classList.add('hidden');
+      }
+
+      // Set payment date if paid
+      const paymentSection = document.getElementById('detailPaymentSection');
+      if (debt.status === 'paid') {
+        paymentSection.classList.remove('hidden');
+        paymentSection.querySelector('p').textContent = debt.paymentDate ? formatDate(debt.paymentDate) : formattedDate;
+      } else {
+        paymentSection.classList.add('hidden');
+      }
+
+      // Update buttons based on status
+      if (debt.status === 'paid') {
+        markAsPaidBtn.classList.add('hidden');
+      } else {
+        markAsPaidBtn.classList.remove('hidden');
+      }
+
+      toggleModal(debtDetailModal);
+    }
+
+    function showNotification(title, message, type = 'info') {
+      notificationTitle.textContent = title;
+      notificationMessage.textContent = message;
+
+      // Set icon and color based on type
+      notification.className = 'notification';
+      notification.classList.add('show');
+
+      if (type === 'success') {
+        notification.classList.add('success');
+        notificationIcon.className = 'fas fa-check-circle mr-2';
+      } else if (type === 'warning') {
+        notification.classList.add('warning');
+        notificationIcon.className = 'fas fa-exclamation-triangle mr-2';
+      } else if (type === 'error') {
+        notification.classList.add('error');
+        notificationIcon.className = 'fas fa-times-circle mr-2';
+      } else {
+        notificationIcon.className = 'fas fa-info-circle mr-2';
+      }
+
+      // Hide after 5 seconds
+      setTimeout(() => {
+        notification.classList.remove('show');
+      }, 5000);
+    }
+
+    function exportToPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      // Title with money bag emoji
+      doc.setFontSize(18);
+      doc.setTextColor(79, 70, 229);
+      doc.text('Relatório de Dívidas - Pagou', 105, 15, { align: 'center' });
+
+      // Date
+      doc.setFontSize(10);
+      doc.setTextColor(100, 100, 100);
+      const today = new Date();
+      doc.text(`Gerado em: ${today.toLocaleDateString('pt-BR')}`, 105, 22, { align: 'center' });
+
+      // Summary
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.text('Resumo', 14, 32);
+
+      // Calculate totals
+      const toReceiveTotal = debts
+        .filter(debt => debt.type === 'toReceive' && debt.status === 'pending')
+        .reduce((sum, debt) => sum + debt.value, 0);
+
+      const toPayTotal = debts
+        .filter(debt => debt.type === 'toPay' && debt.status === 'pending')
+        .reduce((sum, debt) => sum + debt.value, 0);
+
+      const paidTotal = debts
+        .filter(debt => debt.status === 'paid')
+        .reduce((sum, debt) => sum + debt.value, 0);
+
+      doc.setFontSize(10);
+      doc.text(`Total a Receber: ${toReceiveTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 14, 40);
+      doc.text(`Total a Pagar: ${toPayTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 14, 46);
+      doc.text(`Total Pago: ${paidTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`, 14, 52);
+
+      // Debts tables
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.text('Dívidas a Receber', 14, 62);
+
+      // To Receive table
+      const toReceiveDebts = debts.filter(debt => debt.type === 'toReceive');
+      const toReceiveData = toReceiveDebts.map(debt => [
+        debt.name,
+        formatDate(debt.date),
+        debt.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+        debt.status === 'paid' ? 'Pago' : 'Pendente',
+        debt.status === 'paid' ? formatDate(debt.paymentDate) : '-'
+      ]);
+
+      doc.autoTable({
+        startY: 66,
+        head: [['Nome', 'Data', 'Valor', 'Status', 'Data Pagamento']],
+        body: toReceiveData,
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        styles: {
+          fontSize: 8
+        }
+      });
+
+      // To Pay table
+      doc.setFontSize(12);
+      doc.setTextColor(0, 0, 0);
+      doc.text('Dívidas a Pagar', 14, doc.autoTable.previous.finalY + 10);
+
+      const toPayDebts = debts.filter(debt => debt.type === 'toPay');
+      const toPayData = toPayDebts.map(debt => [
+        debt.name,
+        formatDate(debt.date),
+        debt.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+        debt.status === 'paid' ? 'Pago' : 'Pendente',
+        debt.status === 'paid' ? formatDate(debt.paymentDate) : '-'
+      ]);
+
+      doc.autoTable({
+        startY: doc.autoTable.previous.finalY + 14,
+        head: [['Nome', 'Data', 'Valor', 'Status', 'Data Pagamento']],
+        body: toPayData,
+        headStyles: {
+          fillColor: [79, 70, 229],
+          textColor: 255,
+          fontStyle: 'bold'
+        },
+        styles: {
+          fontSize: 8
+        }
+      });
+
+      // Footer with credits
+      doc.setFontSize(8);
+      doc.setTextColor(100, 100, 100);
+      doc.text('© 2025 Pagou - Controle de Dívidas | Desenvolvido por Antonio Pereira',
+        105, doc.internal.pageSize.height - 10, { align: 'center' });
+
+      // Save the PDF
+      doc.save(`relatorio-pagou-${today.toISOString().split('T')[0]}.pdf`);
+
+      showNotification('Relatório exportado!', 'O PDF foi gerado com sucesso.', 'success');
+    }
+
+    // Initialize date pickers
+    document.getElementById('debtDate').addEventListener('change', function () {
+      if (addReminder.checked) {
+        document.getElementById('reminderDate').value = this.value;
+      }
+    });
+
+    // Reminder functions
+    function setupReminders() {
+      // Clear all existing reminders
+      for (const id in reminderTimeouts) {
+        clearTimeout(reminderTimeouts[id]);
+      }
+      reminderTimeouts = {};
+
+      // Setup reminders for all debts that have them
+      debts.forEach(debt => {
+        if (debt.reminder && debt.status !== 'paid') {
+          setupReminder(debt);
+        }
+      });
+    }
+
+    function setupReminder(debt) {
+      if (!debt.reminder || debt.status === 'paid') return;
+
+      const reminderDateTime = new Date(`${debt.reminder.date}T${debt.reminder.time}`);
+      const now = new Date();
+      const timeUntilReminder = reminderDateTime - now;
+
+      // Only set reminder if it's in the future
+      if (timeUntilReminder > 0) {
+        reminderTimeouts[debt.id] = setTimeout(() => {
+          showReminderNotification(debt);
+
+          // If it's a recurring reminder, set it up again for next year
+          if (debt.reminder.isRecurring) {
+            const nextYearReminderDate = new Date(reminderDateTime);
+            nextYearReminderDate.setFullYear(nextYearReminderDate.getFullYear() + 1);
+
+            // Update the debt's reminder date
+            const debtIndex = debts.findIndex(d => d.id === debt.id);
+            if (debtIndex !== -1) {
+              debts[debtIndex].reminder.date = nextYearReminderDate.toISOString().split('T')[0];
+              saveDebts();
+              setupReminder(debts[debtIndex]);
+            }
+          }
+        }, timeUntilReminder);
+      }
+    }
+
+    function showReminderNotification(debt) {
+      const formattedDate = formatDate(debt.date);
+      const formattedValue = debt.value.toLocaleString('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+      });
+
+      const title = `Lembrete de ${debt.type === 'toReceive' ? 'Recebimento' : 'Pagamento'}`;
+      const message = `${debt.name} - ${formattedValue} - Vencimento: ${formattedDate}`;
+
+      // Notificação do sistema
+      if ('Notification' in window && Notification.permission === 'granted') {
+        const notification = new Notification(title, {
+          body: message,
+          icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💲</text></svg>',
+          badge: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💲</text></svg>',
+          vibrate: [200, 100, 200],
+          tag: 'debt-reminder',
+          renotify: true
+        });
+
+        notification.onclick = function () {
+          window.focus();
+          showDebtDetails(debt);
+        };
+      }
+
+      // Notificação in-app
+      showNotification(title, message, 'warning');
+
+      // Som de notificação
+      playNotificationSound();
+    }
+  </script>
+  <script>
+  // Formata a data no formato DD/MM/AAAA
+  function getDataAtualFormatada() {
+    const hoje = new Date();
+    const dia = String(hoje.getDate()).padStart(2, '0');
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    const ano = hoje.getFullYear();
+    return `${dia}/${mes}/${ano}`;
+  }
+
+  // Substitui as datas do modal pela data atual ao abrir o modal
+  function sincronizarDatasModal() {
+    const dataAtual = getDataAtualFormatada();
+    const detailDate = document.getElementById('detailDate');
+    const detailPaymentDate = document.getElementById('detailPaymentDate');
+    if (detailDate) detailDate.textContent = dataAtual;
+    if (detailPaymentDate) detailPaymentDate.textContent = dataAtual;
+  }
+
+  // Exemplo: sincroniza datas sempre que o modal for aberto
+  // Troque "#debtDetailModal" e lógica de abertura conforme sua implementação
+  document.getElementById('debtDetailModal').addEventListener('show', sincronizarDatasModal);
+
+  // Se usar botão específico para abrir, adicione assim:
+  // document.getElementById('botaoQueAbreOModal').addEventListener('click', sincronizarDatasModal);
+</script>
+</body>
+
+</html>
